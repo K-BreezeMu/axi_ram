@@ -1,6 +1,5 @@
-interface axi_interface;
+interface axi_interface(input clk);
 
-	logic clk;
 	logic resetn;
 
 	logic awvalid;

@@ -17,17 +17,15 @@ class axi_monitor extends uvm_monitor;
 	endfunction
 
 	virtual task run_phase(uvm_phase phase);
-		axi_transaction tr;
 		super.run_phase(phase);
 		fork
 			monitor_read();
 			monitor_write();
 		join
-
-		end
 	endtask
 		
 	virtual task monitor_read();
+		axi_transaction tr;
 		forever begin
 			tr = axi_transaction::type_id::create("tr");
 			tr.is_write = 0;
@@ -48,6 +46,7 @@ class axi_monitor extends uvm_monitor;
 		endtask
 
 	virtual task monitor_write();
+		axi_transaction tr;
 		forever begin
 			tr = axi_transaction::type_id::create("tr");
 			tr.is_write = 1;

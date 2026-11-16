@@ -13,8 +13,8 @@ class axi_transaction extends uvm_sequence_item;
 	bit clk,resetn;
 	bit awvalid;
 	bit awready;
-	bit [7:0] awid;
-	bit [7:0] awlen;
+	rand bit [7:0] awid;
+	rand bit [7:0] awlen;
 	rand bit [2:0] awsize;
 	rand bit [15:0] awaddr;
 	rand bit [1:0] awburst;
@@ -31,7 +31,7 @@ class axi_transaction extends uvm_sequence_item;
 	bit [1:0] bresp;
 	
 	bit		arready;
-	bit [7:0] 	arid;
+	rand bit [7:0] 	arid;
 	rand bit [15:0] araddr;
 	rand bit [7:0]  arlen;
 	rand bit [2:0]	arsize;
@@ -44,6 +44,19 @@ class axi_transaction extends uvm_sequence_item;
 	bit		rlast;
 	bit		rvalid;
 	bit		rready;
+
+	constraint queue_size {
+		wdata.size() == awlen+1;
+		wstrb.size() == awlen+1;
+		}
+	
+	constraint addr {
+		(awaddr + ((awlen+1) * (1<<awsize)))<= 16'h10000;
+		(awaddr % 4096) + ((awlen + 1) * (1<<awsize)) <= 4096;
+		
+		(araddr + ((arlen+1) * (1<<arsize))) <= 16'h10000;
+		(araddr % 4096) + ((arlen + 1) * (1<<arsize)) <= 4096;
+		}
 	
 
 endclass
