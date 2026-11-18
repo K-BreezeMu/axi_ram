@@ -1,13 +1,10 @@
-typedef enum bit [2:0] {wrrdfixed=0,wrrdincr=1,wrrdwrap=2,wrrderror=3,rstdut=4}operation;
 class axi_transaction extends uvm_sequence_item;
-
-	operation op;
-	bit is_write;
-
+  `uvm_object_utils(axi_transaction)
 	function new(string name = "axi_transaction");
 		super.new(name);
 	endfunction
-
+  
+  bit is_write;
 	rand bit [7:0] id;
 
 	bit clk,resetn;
@@ -51,10 +48,10 @@ class axi_transaction extends uvm_sequence_item;
 		}
 	
 	constraint addr {
-		(awaddr + ((awlen+1) * (1<<awsize)))<= 16'h10000;
+		(awaddr + ((awlen+1) * (1<<awsize)))<= 17'h10000;
 		(awaddr % 4096) + ((awlen + 1) * (1<<awsize)) <= 4096;
 		
-		(araddr + ((arlen+1) * (1<<arsize))) <= 16'h10000;
+		(araddr + ((arlen+1) * (1<<arsize))) <= 17'h10000;
 		(araddr % 4096) + ((arlen + 1) * (1<<arsize)) <= 4096;
 		}
 	

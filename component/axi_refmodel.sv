@@ -1,6 +1,7 @@
 class axi_refmodel;
 	bit [7:0] ref_mem [bit [15:0]];
-	function void write (bit [15:0] awaddr,bit [7:0] awlen,bit [2:0] awsize,bit [1:0] awburst,bit [3:0] wstrb[$],bit [31:0] wdata[$]);
+ typedef bit [31:0] rdata_queue_t[$];
+ function void write (bit [15:0] awaddr,bit [7:0] awlen,bit [2:0] awsize,bit [1:0] awburst,bit [3:0] wstrb[$],bit [31:0] wdata[$]);
 		bit [15:0] addr;
 		bit [15:0] addr_count;
 		addr_count = awaddr;
@@ -28,9 +29,9 @@ class axi_refmodel;
 		end
 	endfunction
 
-	function bit [31:0] read[$] (bit [15:0] araddr,bit [7:0] arlen,bit [2:0] arsize,bit [1:0] arburst);
+	function rdata_queue_t read (bit [15:0] araddr,bit [7:0] arlen,bit [2:0] arsize,bit [1:0] arburst);
 		bit [15:0] addr;
-		bit [31:0] rdata[$];
+    rdata_queue_t rdata;
 		bit [31:0] data;
 		bit [15:0] addr_count;
 		if(arburst == 2'b00) begin

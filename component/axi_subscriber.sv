@@ -150,19 +150,19 @@ class axi_subscriber extends uvm_subscriber #(axi_transaction);
 		cg_wstrb = new();
 	endfunction
 
-	virtual function void write(axi_transaction tr);
-		if (tr == null) return;
-		this.tr = tr;
+	virtual function void write(axi_transaction t);
+		if (t == null) return;
+		this.tr = t;
 
-		if(tr.is_write == 1'b1) begin
+		if(t.is_write == 1'b1) begin
 			cg_aw.sample();
 
-			if(tr.wstrb.size() >0) cg_wstrb.sample(tr.wstrb[0]);
-			if(tr.wdata.size() >0) wr_data_cg.sample(tr.wdata[0]);
+			if(t.wstrb.size() >0) cg_wstrb.sample(tr.wstrb[0]);
+			if(t.wdata.size() >0) wr_data_cg.sample(tr.wdata[0]);
 		end else begin
 			cg_ar.sample();
 
-			if(tr.rdata.size() >0) rd_data_cg.sample(tr.rdata[0]);
+			if(t.rdata.size() >0) rd_data_cg.sample(tr.rdata[0]);
 		end
 	endfunction
 endclass

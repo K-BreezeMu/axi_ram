@@ -1,4 +1,3 @@
-`timescale 1ns/1ps
 `include "uvm_macros.svh"
 import uvm_pkg::*;
 import axi_pkg::*;
@@ -80,6 +79,6 @@ module top_tb;
 
 		initial begin
 			#1000000;
-			uvm_fatal("top","simulation timeout!")
+			`uvm_fatal("top","simulation timeout!")
 		end
 		endmodule

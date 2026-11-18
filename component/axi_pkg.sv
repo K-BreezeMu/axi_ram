@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 package axi_pkg;
 	import uvm_pkg::*;
 	`include "uvm_macros.svh"
@@ -14,5 +15,9 @@ package axi_pkg;
 	`include "axi_subscriber.sv"
 
 	`include "axi_env.sv"
+
+	`include "base_sequence.sv"
+
+	`include "base_sequence_test.sv"
 
 endpackage

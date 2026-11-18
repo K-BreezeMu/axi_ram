@@ -11,6 +11,9 @@ class axi_driver extends uvm_driver #(axi_transaction);
 	virtual function void build_phase(uvm_phase phase);
 		super.build_phase(phase);
 		tr = axi_transaction::type_id::create("tr");
+    if (!uvm_config_db#(virtual axi_interface)::get(this, "", "vif", vif)) begin
+            `uvm_fatal("DRV", "Cannot get virtual interface!")
+        end
 	endfunction
 
 	virtual task run_phase(uvm_phase phase);
@@ -24,18 +27,31 @@ class axi_driver extends uvm_driver #(axi_transaction);
 	endtask
 
 	virtual task run();
-		if(tr.op == rstdut)
+		if(tr.resetn == 1'b1)
 			reset_dut();
-		else if(tr.op == wrrdfixed) begin
-			`uvm_info("DRV",$sformatf("Fixed Mode Write read wlen=%0d wsize=%0d",tr.awlen+1,tr.awsize),UVM_MEDIUM)
-			fixed_wr();
-			fixed_rd();
+	else begin
+		if(tr.is_write == 1'b1) begin
+			if(tr.awburst == 2'b00) begin
+				`uvm_info("DRV",$sformatf("Fixed Mode Write wlen=%0d wsize=%0d",tr.awlen+1,tr.awsize),UVM_MEDIUM)
+				fixed_wr();
+			end
+			if(tr.awburst == 2'b01) begin
+				`uvm_info("DRV",$sformatf("increament Mode Write read wlen=%0d wsize=%0d",tr.awlen+1,tr.awsize),UVM_MEDIUM)
+				incr_wr();
+			end
 		end
-		else if(tr.op == wrrdincr) begin
-			`uvm_info("DRV",$sformatf("increament Mode Write read wlen=%0d wsize=%0d",tr.awlen+1,tr.awsize),UVM_MEDIUM)
-			incr_wr();
-			incr_rd();
+
+		else begin
+			if(tr.arburst == 2'b00) begin
+				`uvm_info("DRV",$sformatf("Fixed Mode read rlen=%0d rsize=%0d",tr.arlen+1,tr.arsize),UVM_MEDIUM)
+				fixed_rd();
+			end
+			if(tr.arburst == 2'b01) begin
+				`uvm_info("DRV",$sformatf("increament Mode read rlen=%0d rsize=%0d",tr.arlen+1,tr.arsize),UVM_MEDIUM)
+				incr_rd();
+			end
 		end
+	end
 	  endtask
 
 	virtual task init_bus();
