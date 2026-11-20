@@ -1,152 +1,292 @@
-# AXI4 RAM UVM Verification Project
+# AXI4 RAM UVM 验证环境
 
-> **Status: 🟡 WIP (Work In Progress) / 状态：🟡 开发中**  
-> This project is currently under active development. The UVM environment skeleton and core components (Driver, Monitor, Refmodel) are implemented, while the Scoreboard and coverage collection are being refined.
-> 本项目正在开发中。UVM 环境框架及核心组件（Driver、Monitor、Refmodel）已搭建，Scoreboard 与覆盖率收集正在完善中。
+> **30 秒摘要**：这是一个从 0 搭建的 AXI4 Slave UVM 验证项目，完整打通「激励生成 → 总线驱动 → 并发采集 → 参考模型 → 字节级比对 → 功能覆盖率」闭环。
+>
+> 我重点解决了 AXI 验证里最容易出问题的三件事：**5 个通道的并发采集与 burst 重组**、**WSTRB 字节掩码建模**、**无 RSTRB 条件下的窄传输比对**。
+>
+> **能力关键词**：UVM 全链路 · AXI4 协议 · 参考模型 · 功能覆盖率 · Debug
 
----
+<p>
+  <img alt="SystemVerilog" src="https://img.shields.io/badge/SystemVerilog-1f6feb">
+  <img alt="UVM" src="https://img.shields.io/badge/UVM-1.2-8a2be2">
+  <img alt="AXI4" src="https://img.shields.io/badge/AXI4-Slave-2ea043">
+  <img alt="Simulator" src="https://img.shields.io/badge/simulator-VCS%20%7C%20Verdi-orange">
+  <img alt="Status" src="https://img.shields.io/badge/status-verified-brightgreen">
+</p>
 
-<details open>
-<summary><b>🇬🇧 English Version</b></summary>
-
-## 📌 DUT Overview
-
-The Design Under Test (DUT) is an AXI4-compliant Block RAM (`axi_ram`). It acts as a standard AXI4 Slave device, receiving read/write requests from the master and translating them into internal 32-bit wide memory accesses.
-
-### Parameter Configuration
-The DUT is instantiated with the following key parameters:
-
-| Parameter | Value | Description |
-| :--- | :--- | :--- |
-| `DATA_WIDTH` | 32 | Data bus width (4 Bytes) |
-| `ADDR_WIDTH` | 16 | Address bus width (64 KB address space) |
-| `ID_WIDTH` | 8 | Width of the AXI ID signals |
-| `STRB_WIDTH` | 4 | Width of Write Strobe (`WSTRB`) |
-| Reset Logic | `rst` | **Active-High** (0 for normal operation, 1 for reset). Note: Internal memory is *not* cleared upon reset. |
-
-## 🔌 Interface & Channels
-
-The DUT features a full standard AXI4 Slave interface with 5 independent channels:
-
-- **AW (Write Address)**: Master provides the starting address, burst length (`AWLEN`), and burst size (`AWSIZE`).
-- **W (Write Data)**: Master drives 32-bit `WDATA` along with `WSTRB` to indicate valid byte lanes.
-- **B (Write Response)**: DUT returns `BRESP` after all write data is received.
-- **AR (Read Address)**: Master provides the read starting address and burst configurations.
-- **R (Read Data)**: DUT returns a full 32-bit data block, with `RLAST` marking the end of a burst.
-
-## ⚙️ DUT Functional Features
-
-1. **Burst Types**:
-   - **INCR (Increment, `2'b01`)**: Addresses increment by `2^AxSIZE` per beat.
-   - **FIXED (Fixed, `2'b00`)**: Address remains constant, overwriting the same memory location.
-   - *(Note: The RTL does not support WRAP burst mode).*
-2. **Byte Masking (`WSTRB`)**: The DUT strictly relies on the `WSTRB` signal to determine which byte lanes are written. Bytes with `WSTRB[n] == 0` remain unchanged.
-3. **Internal Addressing**: The internal RAM array is 32-bit wide. The DUT truncates the lower 2 bits of the 16-bit byte address (`addr >> 2`) to locate the internal word, and uses `WSTRB` to resolve the exact byte.
-4. **Read Data Output**: Regardless of the requested `ARSIZE`, the DUT always outputs the entire 32-bit data block from the targeted internal word. The master is responsible for filtering the valid bytes based on address alignment.
-5. **No Outstanding Support**: As a simplified design, the DUT processes transactions serially. It does not support multiple outstanding transactions or out-of-order execution.
-
-## 🏗️ UVM Environment Architecture (Current Progress)
-
-The verification environment is built using SystemVerilog and UVM. The current structure includes:
-
-- **`axi_transaction`**: Defines the transaction fields, using `op` and `is_write` to distinguish between write and read operations.
-- **`axi_driver`**: Drives the AXI signals according to the protocol. Supports `reset`, `fixed_wr/rd`, and `incr_wr/rd` sequences.
-- **`axi_monitor`**: Utilizes `fork...join` to concurrently monitor AW/W/B and AR/R channels, assembling physical bus activities into complete transactions.
-- **`axi_refmodel`**: An ideal behavior model based on an associative array. Updates memory bytes based on `WSTRB` during writes and outputs the fully assembled 32-bit block during reads.
-- **`axi_scoreboard`** *(In Progress)*: Receives transactions from the Monitor, fetches expected data from the Refmodel, and performs byte-level mask comparisons for reads.
-
-</details>
+[GitHub 仓库](https://github.com/K-BreezeMu/axi_ram) · [验证架构](#验证架构) · [关键设计](#三个关键设计) · [测试与结果](#测试与结果) · [快速开始](#快速开始)
 
 ---
 
-<details open>
-<summary><b>🇨🇳 中文版 (Chinese Version)</b></summary>
+## 项目名片
 
-## 📌 DUT (待测设计) 概述
-
-待测设计（DUT）是一个符合 AXI4 协议的片内 RAM（`axi_ram`）。它作为一个标准的 AXI4 从设备（Slave），接收来自主机的读写请求，并将其转换为内部 32-bit 宽度的存储阵列访问。
-
-### 参数配置
-DUT 例化时使用的主要参数如下：
-
-| 参数名 | 值 | 说明 |
-| :--- | :--- | :--- |
-| `DATA_WIDTH` | 32 | 数据总线宽度 (4 Bytes) |
-| `ADDR_WIDTH` | 16 | 地址总线宽度 (64 KB 寻址空间) |
-| `ID_WIDTH` | 8 | AXI ID 信号宽度 |
-| `STRB_WIDTH` | 4 | 写掩码 (`WSTRB`) 宽度 |
-| 复位逻辑 | `rst` | **高电平有效**（0为正常工作，1为复位）。注意：复位不清空内部 RAM 数据。 |
-
-## 🔌 接口与通道
-
-DUT 拥有完整的标准 AXI4 从机接口，包含 5 个独立通道：
-
-- **AW (写地址)**：主机提供写起始地址、突发长度（`AWLEN`）和突发大小（`AWSIZE`）。
-- **W (写数据)**：主机发送 32-bit 数据（`WDATA`），并通过 `WSTRB` 指示哪些字节车道有效。
-- **B (写响应)**：DUT 接收完所有写数据后，返回响应（`BRESP`）。
-- **AR (读地址)**：主机提供读起始地址及突发配置。
-- **R (读数据)**：DUT 吐出完整的 32-bit 数据块，通过 `RLAST` 标记突发结束。
-
-## ⚙️ DUT 功能特性
-
-1. **突发类型 (Burst Types)**：
-   - **INCR (递增模式, `2'b01`)**：地址按 `2^AxSIZE` 递增。
-   - **FIXED (固定模式, `2'b00`)**：地址保持不变，持续覆盖同一内存位置。
-   - *（注：该 RTL 不支持 WRAP 回绕模式）*
-2. **字节掩码 (`WSTRB`)**：DUT 严格依赖 `WSTRB` 信号决定实际写入的字节车道。`WSTRB[n] == 0` 的字节将保持不变。
-3. **内部寻址机制**：内部 RAM 阵列为 32-bit 宽。DUT 会截断外部 16 位字节地址的低 2 位（`addr >> 2`）以定位内部字（Word），并通过 `WSTRB` 解析具体字节。
-4. **读数据输出**：无论请求的 `ARSIZE` 是多少，DUT 总是输出目标内部字的完整 32-bit 数据块，由主机自行根据地址对齐情况过滤有效字节。
-5. **无 Outstanding (未完成事务) 能力**：作为简化设计，DUT 串行处理事务，不支持多笔并发或乱序返回。
-
-## 🏗️ UVM 验证环境架构 (当前进度)
-
-验证环境基于 SystemVerilog 和 UVM 搭建，当前结构包含：
-
-- **`axi_transaction`**：定义事务字段，通过 `op` 和 `is_write` 区分读写操作。
-- **`axi_driver`**：按协议驱动 AXI 信号。支持 `reset`、`fixed_wr/rd`、`incr_wr/rd` 激励。
-- **`axi_monitor`**：利用 `fork...join` 并发监控 AW/W/B 与 AR/R 通道，将物理总线活动组装成完整的事务。
-- **`axi_refmodel`**：基于关联数组的理想行为模型。写操作时根据 `WSTRB` 更新内存字节；读操作时输出拼装好的完整 32-bit 数据块。
-- **`axi_scoreboard`** *(开发中)*：接收 Monitor 的事务，从 Refmodel 获取期望数据，并对读操作进行字节级掩码比对。
-
-</details>
-
----
-#11.12日
-# AXI4 RAM UVM Verification Project - Daily Progress
-
-## 📅 今日战果：核心组件搭建完毕
-
-成功搭建了完整的 AXI4 RAM UVM 验证环境骨架，包含以下核心文件：
-
-- [x] **`axi_transaction`**：统一定义读写事务，新增 `is_write` 标志位。
-- [x] **`axi_driver`**：严格按 AXI 时序驱动，支持 `reset`、`FIXED`、`INCR` 模式。
-- [x] **`axi_monitor`**：使用 `fork...join` 并发监控读写通道，完整拼装总线事务。
-- [x] **`axi_refmodel`**：基于关联数组的字节级理想模型，按 `WSTRB` 掩码精准更新。
-- [x] **`axi_scoreboard`**：实现 **Mask 掩码比对** 逻辑，支持统计 `pass/fail`。
-- [x] **`axi_agent` & `axi_env`**：完成标准 UVM 树形分层与 TLM 端口连接。
+| 项目 | 内容 |
+| --- | --- |
+| 项目类型 | 数字 IC 验证个人项目 / UVM 实战 |
+| 项目时间 | 2026.10 – 2026.11 |
+| 我的角色 | 独立完成验证环境、测试用例、Debug 与文档 |
+| 待测设计 | `axi_ram`：AXI4 Block RAM Slave，16-bit 地址、32-bit 数据、8-bit ID、4-bit WSTRB |
+| 验证方法 | UVM 1.2、约束随机（CRV）、参考模型、scoreboard、covergroup |
+| 代码规模 | 约 **1.4k 行验证代码**，20 个 SystemVerilog 文件；DUT 约 1.1k 行 |
+| 仿真工具 | Synopsys VCS + Verdi，Makefile 管理编译、回归与波形 |
+| 项目状态 | 环境闭环可运行；覆盖率与断言仍在持续完善 |
 
 ---
 
-## 🔧 关键 Bug 修复记录
+## 先看结果
 
-在编码过程中排查并解决了以下致命问题：
+| 指标 | 结果 |
+| --- | --- |
+| 测试用例 | FIXED、INCR、200 轮随机，共 3 条主测试 |
+| 比对粒度 | 读事务逐 beat、逐 byte 比对，覆盖 1/2/4 字节传输 |
+| 仿真结果 | 仓库记录的报告为 **FALL = 0** |
+| 功能覆盖率 | `cg_aw` 88.00% · `cg_ar` 78.86% · `wr_data_cg` 75.00% · `rd_data_cg` 100% · `cg_wstrb` 100% |
+| 典型调试 | 握手竞争、INCR 地址截断、Monitor 句柄复用 3 类问题 |
 
-1. **时序竞争与死锁**：废弃 `wait()` 电平敏感等待，全面替换为严谨的 `do @(posedge clk); while(!(valid && ready))` 握手判断。
-2. **地址截断灾难**：明确 Refmodel 中**先计算完整地址（`addr + i*size`），再进行 4 字节对齐（`& ~3`）**的规则，防止 INCR 模式下数据错位。
-3. **句柄覆盖冲突**：将 Monitor 中的 `create("tr")` 移入 `forever` 循环内，确保每次 TLM 写入的数据安全独立。
+![AXI RAM 仿真覆盖率报告](coverage.png)
+
+> 数据来自仓库中的 `coverage.png` 仿真截图；覆盖率会随随机种子和用例变化。
+>
+> 说明：截图中的 `total` 按字节计数，`PASS` 只统计字内有效 lane；跨字边界字节当前会被跳过，因此两者不相等，详见「已知限制」。
 
 ---
 
-## ✨ 核心亮点
+## 工程亮点
 
-- **深度理解 AXI 非对称性**：由于读通道无 `RSTRB`，Refmodel 吐出完整的 32-bit 块，Scoreboard 利用 `start_lane = addr % 4` 和字节切片 `[lane*8 +: 8]` 实现了**精准的窄传输比对**，完美过滤无效车道数据。
-- **完备的双模式支持**：Refmodel 与 Scoreboard 均完美兼容 `FIXED`（地址不变，重复覆盖）与 `INCR`（地址按 `2^AxSIZE` 递增）模式。
-- **工业级监控架构**：读写通道独立并行监控，互不阻塞，保障采集完整性。
+| 亮点 | 我做了什么 | 体现的能力 |
+| --- | --- | --- |
+| **完整 UVM 闭环** | 从 interface、transaction、sequencer、driver、monitor，到 refmodel、scoreboard、subscriber、env/test，全部打通 | UVM 树形结构、TLM、factory、config_db、phase 机制 |
+| **Monitor 真正并发** | 用 `fork...join` 同时监控写通道（AW/W/B）和读通道（AR/R），按 VALID/READY 握手把物理信号重组成完整 burst | AXI4 五通道协议、并发采集、事务重组 |
+| **字节级参考模型** | 用关联数组按 byte 存储，写操作严格按 `WSTRB` 更新，FIXED/INCR 分别推进地址 | 参考模型独立实现、字节掩码、地址对齐 |
+| **窄传输比对** | 读通道没有 `RSTRB`，根据 `ARSIZE` 与地址计算有效 lane，对 32-bit 读数据做字节切片比对 | 协议细节理解、mask 比对、边界分析 |
+| **约束随机 + 定向补盲** | 200 轮随机读写，约束覆盖 4KB 边界、最大 256 beat、size/burst/address 分布，并补 WSTRB/数据模式定向用例 | CRV、覆盖率驱动验证、corner case 设计 |
+| **工程化交付** | Makefile 一键编译/回归、Verdi 波形、清晰的目录分层与 README | 脚本化、可复现、文档能力 |
 
 ---
 
-## 🚀 Next Steps (下一步计划)
+## 我掌握的能力
 
-- [ ] **完善 `axi_transaction`**：补齐随机化约束，确保 `wdata.size()` 和 `wstrb.size()` 与 `awlen` 匹配，并加入合理的地址对齐约束。
-- [ ] **搭建 `axi_subscriber`**：完成覆盖率收集器开发，对 `awsize`、`arsize`、`axburst` 以及 `wstrb` 的取值分布与交叉组合进行采样。
-*Created for AXI4 RAM UVM Verification.*
+| 能力维度 | 对应实践 |
+| --- | --- |
+| **UVM 方法学** | 独立搭建 agent / env / sequence / sequencer / driver / monitor / scoreboard / subscriber；理解 phase、objection、config_db、analysis port |
+| **AXI4 协议** | 熟悉 AW/W/B/AR/R 五通道握手、FIXED/INCR burst、WSTRB、WLAST/RLAST、4KB 边界、窄传输与地址对齐 |
+| **验证平台开发** | 事务建模与随机约束、driver 时序驱动、monitor 并发采样、TLM 连接、参考模型与 scoreboard |
+| **覆盖率驱动验证** | 设计 5 个 covergroup，覆盖 burst 类型、size、len、地址区间、数据模式与 WSTRB 组合 |
+| **Debug 能力** | 从 mismatch 反查协议时序、地址计算和 SV 语义问题；用波形 + 日志定位竞争与句柄复用 |
+| **工程化** | VCS/Makefile 流程、Verdi 调试、Git 版本管理、技术文档写作 |
+
+---
+
+## 验证架构
+
+```mermaid
+flowchart LR
+    subgraph TEST["uvm_test"]
+        SEQ["fix_sequence<br/>incr_sequence<br/>random_sequence"]
+    end
+
+    subgraph ENV["axi_env"]
+        SEQR["axi_sequencer"]
+        DRV["axi_driver<br/>FIXED / INCR<br/>读 / 写"]
+        MON["axi_monitor<br/>read + write 双通道并发"]
+        SCB["axi_scoreboard<br/>逐 beat / 逐 byte 比对"]
+        REF["axi_refmodel<br/>关联数组 byte memory"]
+        COV["axi_subscriber<br/>5 个 covergroup"]
+    end
+
+    IF["axi_interface<br/>5 通道信号"]
+    DUT["axi_ram<br/>AXI4 Slave"]
+
+    SEQ -->|"start_item"| SEQR
+    SEQR -->|"seq_item"| DRV
+    DRV -->|"驱动"| IF
+    IF --> DUT
+    DUT -->|"RDATA / BRESP / RRESP"| IF
+    IF -->|"采样"| MON
+    MON -->|"analysis_port"| SCB
+    MON -->|"同一 analysis_port"| COV
+    SCB <-->|"write / read"| REF
+```
+
+**一句话数据流**：sequence 产生事务 → sequencer 调度 → driver 转成引脚时序 → DUT 响应 → monitor 采集并重组 → scoreboard 与 refmodel 比对，同时 subscriber 采样覆盖率。
+
+### 组件职责
+
+| 组件 | 关键文件 | 职责 |
+| --- | --- | --- |
+| `axi_interface` | [`axi_interface.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_interface.sv) | 声明 AXI4 五通道信号，连接 DUT 与 TB |
+| `axi_transaction` | [`axi_transaction.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_transaction.sv) | 定义读写事务、burst 字段、`wdata/wstrb` 队列及地址约束 |
+| `axi_sequencer` | [`axi_sequencer.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_sequencer.sv) | 标准 UVM sequencer |
+| `axi_driver` | [`axi_driver.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_driver.sv) | 驱动 FIXED/INCR 读写、复位；完成 VALID/READY 握手并检查 BID/RLAST |
+| `axi_monitor` | [`axi_monitor.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_monitor.sv) | 双通道并发采样，组装完整 burst；检查 WLAST 后通过 analysis port 广播 |
+| `axi_refmodel` | [`axi_refmodel.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_refmodel.sv) | 按 byte 维护理想 RAM，处理 WSTRB、FIXED/INCR 地址推进 |
+| `axi_scoreboard` | [`axi_scoreboard.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_scoreboard.sv) | 写事务更新参考模型；读事务按有效 lane 做字节级比对 |
+| `axi_subscriber` | [`axi_subscriber.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_subscriber.sv) | 5 个 covergroup，统计功能覆盖率 |
+| `axi_agent` / `axi_env` | [`axi_agent.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_agent.sv) / [`axi_env.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/axi_env.sv) | 封装 active/passive agent，连接 monitor → scoreboard/subscriber |
+| `top_tb` | [`top_tb.sv`](https://github.com/K-BreezeMu/axi_ram/blob/main/component/top_tb.sv) | 时钟、接口、DUT 例化、`uvm_config_db` 传 vif、超时保护 |
+
+---
+
+## DUT 规格与验证范围
+
+| 参数 / 特性 | 取值 | 验证关注点 |
+| --- | --- | --- |
+| 数据位宽 | 32 bit | WSTRB 字节写、窄传输读 |
+| 地址位宽 | 16 bit（64 KB） | 地址边界、4KB 不跨越 |
+| ID 位宽 | 8 bit | BID 与请求 ID 一致性；读 ID 随 AR 通道采集 |
+| WSTRB | 4 bit | 单字节、半字、全字、全 0 掩码 |
+| Burst | FIXED / INCR | 地址不变 / 按 `2^AxSIZE` 递增 |
+| Burst 长度 | 1 ~ 256 beat | 最大长度、长 burst 数据完整性 |
+| 传输大小 | 1 / 2 / 4 byte | `AWSIZE/ARSIZE = 0/1/2` |
+| 不支持 | WRAP、outstanding、乱序 | 环境按 DUT 能力限定验证范围 |
+
+> DUT 不支持 WRAP 和 outstanding，因此本环境不构造这两类激励；这是**有意识的验证范围裁剪**，不是遗漏。
+
+---
+
+## 三个关键设计
+
+### 1. Monitor 为什么要并发
+
+AXI4 的写通道由 AW、W、B 三个独立通道组成，读通道由 AR、R 组成。如果串行监控，读事务可能阻塞写事务，长 burst 也会拖慢采集。
+
+```systemverilog
+fork
+    monitor_read();
+    monitor_write();
+join
+```
+
+每个通道内部都用「先等握手、再取数据」的方式，避免在 `VALID` 拉高但尚未握手时提前采样：
+
+```systemverilog
+do @(posedge vif.clk);
+while (!(vif.awvalid && vif.awready));
+```
+
+同时检查 `WLAST` / `RLAST` 是否在正确的 beat 拉高，并在 driver 侧检查 `BID` 与请求 ID 是否一致。
+
+### 2. 字节级 Refmodel：先算完整地址，再对齐
+
+这是本项目最关键的调试点之一。INCR 模式下，地址必须**先按完整地址递增，再取字对齐**；如果先对齐再递增，窄传输会写错位置。
+
+```systemverilog
+addr = addr_count & 16'hFFFC;   // 字对齐，定位 32-bit word
+for (int j = 0; j < 4; j++) begin
+    if (wstrb[i][j])
+        ref_mem[addr + j] = wdata[i][j*8 +: 8];
+end
+addr_count = addr_count + (1 << awsize);  // 下一 beat 用完整地址推进
+```
+
+- **FIXED**：地址保持不变，重复覆盖同一个字；
+- **INCR**：每个 beat 地址增加 `2^AxSIZE`；
+- **WSTRB**：只有掩码为 1 的 byte lane 才更新，其他字节保持原值。
+
+### 3. 没有 RSTRB，读数据怎么比？
+
+AXI4 读通道没有 `RSTRB`，DUT 总是返回完整的 32-bit word。scoreboard 需要根据 `ARSIZE` 和当前 beat 地址，自己算出哪些 byte 是有效的：
+
+```systemverilog
+start_lane = addr_count % 4;
+num_byte   = 1 << tr.arsize;
+
+for (int j = 0; j < num_byte; j++) begin
+    lane = start_lane + j;
+    if (lane < 4) begin
+        act_byte = tr.rdata[i][lane*8 +: 8];
+        exp_byte = exp[i][lane*8 +: 8];
+        if (act_byte !== exp_byte) fail++;
+    end
+end
+```
+
+这样 1-byte / 2-byte 窄传输只比较字内有效 lane，不会被无关字节干扰；跨字边界的处理见「已知限制」。
+
+---
+
+## 测试与结果
+
+### 测试矩阵
+
+| 测试 | 场景 | 验证点 |
+| --- | --- | --- |
+| `fix_sequence_test` | FIXED 2-byte / 1-byte / 4-byte；WSTRB 单字节掩码；窄传输；地址末端 | 地址不变、重复覆盖、字节掩码、边界地址 |
+| `incr_sequence_test` | 非对齐起始 `0x1002`；256 beat 最大长度；多次覆盖；部分掩码；4KB 边界 | INCR 地址推进、长 burst、数据完整性、边界不跨越 |
+| `random_test` | 200 轮「写 + 读」；size/len/burst/address 带权随机；单 beat 事务中 10% 随机 WSTRB；定向覆盖率补盲 | 约束随机、corner case、覆盖率收敛 |
+| `base_sequence_test` | 测试基类，只例化 env | 提供统一测试骨架，便于扩展 |
+
+### 覆盖率模型
+
+| covergroup | 覆盖内容 |
+| --- | --- |
+| `cg_aw` | `AWSIZE`、`AWLEN`、`AWBURST`、`AWID`、`AWADDR` 的值域与边界 |
+| `cg_ar` | `ARSIZE`、`ARLEN`、`ARBURST`、`ARID`、`ARADDR` 的值域与边界 |
+| `wr_data_cg` | 写数据 12 个 bin：全 0、全 1、`0xAAAA_AAAA`、`0x5555_5555` 及 8 个数值区间 |
+| `rd_data_cg` | 读数据 12 个 bin，验证读回数据分布 |
+| `cg_wstrb` | 全 0、单字节、半字、全 1 等 9 种 WSTRB 组合 |
+
+### 结果解读
+
+- 仿真报告显示 **FALL = 0**，说明当前用例集下 scoreboard 未发现读数据不一致；
+- `rd_data_cg`、`cg_wstrb` 达到 100%，说明数据模式和字节掩码覆盖较充分；
+- `cg_ar`（78.86%）和 `wr_data_cg`（75.00%）仍是下一阶段的收敛重点，计划通过增加种子、补充读地址区间和写数据模式来提升。
+
+---
+
+## 项目结构
+
+```text
+axi_ram/
+├── component/
+│   ├── axi_interface.sv        # AXI4 五通道接口
+│   ├── axi_transaction.sv      # 事务与随机约束
+│   ├── axi_sequencer.sv
+│   ├── axi_driver.sv           # FIXED/INCR 读写驱动
+│   ├── axi_monitor.sv          # 读写并发采集
+│   ├── axi_refmodel.sv         # 字节级参考模型
+│   ├── axi_scoreboard.sv       # 字节级比对
+│   ├── axi_subscriber.sv       # 5 个 covergroup
+│   ├── axi_agent.sv
+│   ├── axi_env.sv
+│   ├── axi_pkg.sv
+│   └── top_tb.sv
+├── sequence_test/
+│   ├── base_sequence.sv        # write/read/reset 基础操作
+│   ├── fix_sequence.sv         # FIXED 定向用例
+│   ├── incr_sequence.sv        # INCR 定向用例
+│   ├── random_sequence.sv      # 200 轮随机 + 覆盖率补盲
+│   └── *_test.sv               # 测试入口
+├── dut/
+│   └── axi_ram*.v              # AXI4 RAM RTL
+├── coverage.png                # 覆盖率报告截图
+└── makefile                    # VCS 编译 / 回归 / Verdi
+```
+
+---
+
+## 快速开始
+
+### 依赖
+
+- Synopsys VCS（UVM 1.2）
+- Verdi（可选，查看波形）
+- Linux / WSL 环境（Makefile 使用 shell 语法）
+
+### 编译与运行
+
+```bash
+# 编译
+make compile
+
+# 跑单个测试
+make run TEST=fix_sequence_test
+make run TEST=incr_sequence_test
+make run TEST=random_test
+
+# 跑全部测试
+make run_all
+
+# 清理
+make clean
+
