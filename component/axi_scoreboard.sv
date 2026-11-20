@@ -54,6 +54,7 @@ class axi_scoreboard extends uvm_scoreboard;
 								`uvm_error("SCB",$sformatf("Mismatch at addr 0x%h (lane %0d): exp = 0x%h,act = 0x%0h",addr_count + j,lane,exp_byte,act_byte))
 							end else begin
 							pass++;
+              //`uvm_info(get_type_name,$sformatf("Match at addr 0x%h (lane %0d): exp = 0x%h,act = 0x%0h",addr_count + j,lane,exp_byte,act_byte),UVM_MEDIUM)
 							end
 						end
 					end

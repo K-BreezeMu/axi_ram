@@ -17,7 +17,13 @@ package axi_pkg;
 	`include "axi_env.sv"
 
 	`include "base_sequence.sv"
+	`include "fix_sequence.sv"
+  `include "incr_sequence.sv"
+  `include "random_sequence.sv"
 
 	`include "base_sequence_test.sv"
+	`include "fix_sequence_test.sv"
+  `include "incr_sequence_test.sv"
+  `include "random_sequence_test.sv"
 
 endpackage

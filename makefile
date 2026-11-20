@@ -15,7 +15,9 @@ OUTPUT  = simv
 
 VCS_OPTS = -full64 -sverilog -debug_access+all -kdb -ntb_opts uvm-1.2 -lca -Mupdate -timescale=1ns/1ps
 
-TEST ?= base_sequence_test
+TEST ?= incr_sequence_test
+
+ALL_TESTS = base_sequence_test fix_sequence_test incr_sequence_test random_test
 
 DUMP ?= 0
 ifeq ($(DUMP), 1)
@@ -48,11 +50,15 @@ run: compile
 	./$(OUTPUT) +UVM_TESTNAME=$(TEST) +ntb_random_seed_automatic $(RUN_OPTS) -l sim_$(TEST).log
 
 run_all: compile
-	@for t in base_sequence_test; do \
+	@for t in $(ALL_TESTS); do \
 		echo ""; \
-		echo ">>> Running $$t ---"; \
-		./$(OUTPUT) +UVM_TESTNAME=$$t +ntb_random_seed_automatic -l sim_$$t.log; \
+		echo "========================================"; \
+		echo ">>> Running Test: $$t"; \
+		echo "========================================"; \
+		./$(OUTPUT) +UVM_TESTNAME=$$t +ntb_random_seed_automatic $(RUN_OPTS) -l sim_$$t.log; \
 	done
+	@echo ""
+	@echo "All tests finished! Please check sim_*.log for details."
 
 clean:
 	@echo ">>> Cleaning up..."

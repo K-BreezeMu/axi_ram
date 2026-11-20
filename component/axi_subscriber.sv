@@ -165,6 +165,19 @@ class axi_subscriber extends uvm_subscriber #(axi_transaction);
 			if(t.rdata.size() >0) rd_data_cg.sample(tr.rdata[0]);
 		end
 	endfunction
+
+	function void report_phase(uvm_phase phase);
+		super.report_phase(phase);
+
+		`uvm_info("COV","----------------Report--------------",UVM_MEDIUM)
+		`uvm_info("COV",$sformatf("cg_aw       :      %5.2f%%",cg_aw.get_coverage()),UVM_MEDIUM)
+		`uvm_info("COV",$sformatf("cg_ar       :      %5.2f%%",cg_ar.get_coverage()),UVM_MEDIUM)
+		`uvm_info("COV",$sformatf("wr_data_cg  :      %5.2f%%",wr_data_cg.get_coverage()),UVM_MEDIUM)
+		`uvm_info("COV",$sformatf("rd_data_cg  :      %5.2f%%",rd_data_cg.get_coverage()),UVM_MEDIUM)
+		`uvm_info("COV",$sformatf("cg_wstrb    :      %5.2f%%",cg_wstrb.get_coverage()),UVM_MEDIUM)
+		`uvm_info("COV","------------------------------------",UVM_MEDIUM)
+	endfunction
+
 endclass
 
 

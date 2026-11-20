@@ -2,6 +2,7 @@ class axi_transaction extends uvm_sequence_item;
   `uvm_object_utils(axi_transaction)
 	function new(string name = "axi_transaction");
 		super.new(name);
+    resetn = 1'b0;
 	endfunction
   
   bit is_write;

@@ -22,7 +22,7 @@ class axi_driver extends uvm_driver #(axi_transaction);
 			seq_item_port.get_next_item(tr);
 			`uvm_info("DRV",$sformatf("awaddr=%0h",tr.awaddr),UVM_MEDIUM)
 			run();
-			seq_item_port.item_done(tr);
+			seq_item_port.item_done();
 		end
 	endtask
 

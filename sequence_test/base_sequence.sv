@@ -40,6 +40,30 @@ class base_sequence extends uvm_sequence #(axi_transaction);
 		 tr.resetn = 1'b1;
 		 finish_item(tr);
 	 endtask
+
+	 function bit [3:0] calc_wstrb(bit [15:0] addr,bit [2:0] size);
+		 int start_lane;
+		 int num_bytes;
+		 bit [3:0] strb;
+
+		 start_lane = addr % 4;
+		 num_bytes = 1 << size;
+		 strb	= 4'b0000;
+		 for(int i=0;i<num_bytes;i++) begin
+			 if((start_lane + i)<4) begin
+				 strb[start_lane + i] = 1'b1;
+			 end
+		 end
+		 return strb;
+	 endfunction
+
+	 function bit [15:0] calc_addr(bit [15:0] base_addr,int beat,bit [2:0] size,bit [1:0] burst);
+		 if(burst == 2'b00) begin
+			 return base_addr;
+		 end else begin
+			 return base_addr + (beat * (1<<size));
+		 end
+	 endfunction
  endclass
 
 
